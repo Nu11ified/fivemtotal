@@ -15,6 +15,7 @@ import { ruleSchema, verdictSchema } from "@fivemtotal/shared";
 import { authMiddleware } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { requireRole } from "../middleware/role";
+import { sanitizeHtml } from "../lib/sanitize";
 
 export const adminRoutes = new Elysia({ prefix: "/api/admin" })
   .use(authMiddleware)
@@ -161,7 +162,9 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
       }
 
       const previousStatus = existingVerdict.status;
-      const { status, severity, confidence, summary } = parsed.data;
+      const { status, severity, confidence } = parsed.data;
+      // Sanitize user-provided text to prevent stored XSS
+      const summary = sanitizeHtml(parsed.data.summary);
 
       // Update the verdict
       await db
@@ -182,14 +185,17 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
       else if (status === "suspicious") action = "escalate";
       else if (status === "safe") action = "safe_list";
 
-      // Insert review action
+      // Insert review action (sanitize note to prevent stored XSS)
+      const rawNote = (body as Record<string, unknown>).note as string | undefined;
+      const note = rawNote ? sanitizeHtml(rawNote) : undefined;
+
       await db.insert(reviewActions).values({
         verdictId: params.id,
         reviewerId: auth.userId,
         action,
         previousStatus,
         newStatus: status,
-        note: (body as Record<string, unknown>).note as string | undefined,
+        note,
       });
 
       // Insert audit log
@@ -228,7 +234,7 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
               .set({
                 list: "blacklist",
                 source: "analyst",
-                analystNote: summary,
+                analystNote: summary, // already sanitized above
               })
               .where(eq(hashReputation.id, existingRep.id));
           } else {
@@ -237,7 +243,7 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
               hashType: "archive",
               list: "blacklist",
               source: "analyst",
-              analystNote: summary,
+              analystNote: summary, // already sanitized above
             });
           }
         }
@@ -285,8 +291,11 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
         };
       }
 
-      const { name, description, category, severity, pattern, isActive } =
-        parsed.data;
+      const { name, category, severity, pattern, isActive } = parsed.data;
+      // Sanitize user-provided text to prevent stored XSS
+      const description = parsed.data.description
+        ? sanitizeHtml(parsed.data.description)
+        : undefined;
 
       // Check if updating an existing rule by id
       const ruleId = (body as Record<string, unknown>).id as string | undefined;

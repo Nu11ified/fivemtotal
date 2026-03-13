@@ -11,6 +11,11 @@ import {
 import { LIMITS, paginationSchema } from "@fivemtotal/shared";
 import { authMiddleware } from "../middleware/auth";
 import { rateLimitMiddleware, incrementDailyScanCount } from "../middleware/rate-limit";
+import {
+  checkConcurrentUploads,
+  incrementUploads,
+  decrementUploads,
+} from "../middleware/upload-limit";
 import { storeArtifact } from "../services/storage";
 
 /**
@@ -77,142 +82,161 @@ export const scanRoutes = new Elysia({ prefix: "/api/scan" })
         };
       }
 
-      // Read file into buffer
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      // Validate magic bytes
-      if (!validateMagicBytes(buffer)) {
-        set.status = 400;
+      // Check concurrent upload limit before processing
+      const userId = auth.userId;
+      if (!checkConcurrentUploads(userId, auth.tier)) {
+        const limit =
+          auth.tier === "paid"
+            ? LIMITS.PAID_CONCURRENT_UPLOADS
+            : LIMITS.FREE_CONCURRENT_UPLOADS;
+        set.status = 429;
         return {
-          error:
-            "Unsupported file format. Accepted formats: zip, tar, 7z, gzip.",
+          error: `Concurrent upload limit reached (${limit}). Wait for current uploads to finish.`,
         };
       }
 
-      // Compute SHA-256
-      const sha256 = computeSha256(buffer);
+      // Track this upload
+      incrementUploads(userId);
 
-      // Check hash reputation for archive hash — if blacklisted, return immediate verdict
-      const reputationEntry = await db.query.hashReputation.findFirst({
-        where: and(
-          eq(hashReputation.sha256, sha256),
-          eq(hashReputation.hashType, "archive")
-        ),
-      });
+      try {
+        // Read file into buffer
+        const arrayBuffer = await file.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
 
-      if (reputationEntry && reputationEntry.list === "blacklist") {
-        set.status = 200;
-        return {
-          status: "blacklisted",
-          sha256,
-          message: "This archive is on the blacklist.",
-          source: reputationEntry.source,
-          analystNote: reputationEntry.analystNote,
-        };
-      }
+        // Validate magic bytes
+        if (!validateMagicBytes(buffer)) {
+          set.status = 400;
+          return {
+            error:
+              "Unsupported file format. Accepted formats: zip, tar, 7z, gzip.",
+          };
+        }
 
-      // Check for existing artifact with completed scan (dedup)
-      const existingArtifact = await db.query.artifacts.findFirst({
-        where: eq(artifacts.sha256, sha256),
-      });
+        // Compute SHA-256
+        const sha256 = computeSha256(buffer);
 
-      if (existingArtifact) {
-        const completedJob = await db.query.scanJobs.findFirst({
+        // Check hash reputation for archive hash — if blacklisted, return immediate verdict
+        const reputationEntry = await db.query.hashReputation.findFirst({
           where: and(
-            eq(scanJobs.artifactId, existingArtifact.id),
-            eq(scanJobs.status, "completed")
+            eq(hashReputation.sha256, sha256),
+            eq(hashReputation.hashType, "archive")
           ),
         });
 
-        if (completedJob) {
-          const existingVerdict = await db.query.verdicts.findFirst({
-            where: eq(verdicts.artifactId, existingArtifact.id),
-            orderBy: (v, { desc }) => [desc(v.createdAt)],
+        if (reputationEntry && reputationEntry.list === "blacklist") {
+          set.status = 200;
+          return {
+            status: "blacklisted",
+            sha256,
+            message: "This archive is on the blacklist.",
+            source: reputationEntry.source,
+            analystNote: reputationEntry.analystNote,
+          };
+        }
+
+        // Check for existing artifact with completed scan (dedup)
+        const existingArtifact = await db.query.artifacts.findFirst({
+          where: eq(artifacts.sha256, sha256),
+        });
+
+        if (existingArtifact) {
+          const completedJob = await db.query.scanJobs.findFirst({
+            where: and(
+              eq(scanJobs.artifactId, existingArtifact.id),
+              eq(scanJobs.status, "completed")
+            ),
           });
 
-          return {
-            jobId: completedJob.id,
-            status: "completed",
-            cached: true,
-            verdict: existingVerdict
-              ? {
-                  status: existingVerdict.status,
-                  severity: existingVerdict.severity,
-                  confidence: existingVerdict.confidence,
-                  summary: existingVerdict.summary,
-                }
-              : null,
-          };
+          if (completedJob) {
+            const existingVerdict = await db.query.verdicts.findFirst({
+              where: eq(verdicts.artifactId, existingArtifact.id),
+              orderBy: (v, { desc }) => [desc(v.createdAt)],
+            });
+
+            return {
+              jobId: completedJob.id,
+              status: "completed",
+              cached: true,
+              verdict: existingVerdict
+                ? {
+                    status: existingVerdict.status,
+                    severity: existingVerdict.severity,
+                    confidence: existingVerdict.confidence,
+                    summary: existingVerdict.summary,
+                  }
+                : null,
+            };
+          }
         }
-      }
 
-      // Check queue depth per user
-      const userId = auth.userId;
-      const maxQueueDepth =
-        auth.tier === "paid"
-          ? LIMITS.PAID_QUEUE_DEPTH
-          : LIMITS.FREE_QUEUE_DEPTH;
+        // Check queue depth per user
+        const maxQueueDepth =
+          auth.tier === "paid"
+            ? LIMITS.PAID_QUEUE_DEPTH
+            : LIMITS.FREE_QUEUE_DEPTH;
 
-      if (userId) {
-        const [queueCount] = await db
-          .select({ count: count() })
-          .from(scanJobs)
-          .where(
-            and(eq(scanJobs.userId, userId), eq(scanJobs.status, "queued"))
-          );
+        if (userId) {
+          const [queueCount] = await db
+            .select({ count: count() })
+            .from(scanJobs)
+            .where(
+              and(eq(scanJobs.userId, userId), eq(scanJobs.status, "queued"))
+            );
 
-        if (queueCount && queueCount.count >= maxQueueDepth) {
-          set.status = 429;
-          return {
-            error: `Queue depth limit reached (${maxQueueDepth}). Wait for current scans to complete.`,
-          };
+          if (queueCount && queueCount.count >= maxQueueDepth) {
+            set.status = 429;
+            return {
+              error: `Queue depth limit reached (${maxQueueDepth}). Wait for current scans to complete.`,
+            };
+          }
         }
-      }
 
-      // Check daily scan limit for API key users
-      if (auth.apiKeyId) {
-        const canScan = await checkScanLimit();
-        if (!canScan) {
-          set.status = 429;
-          return {
-            error: `Daily API scan limit reached (${LIMITS.FREE_API_CALLS_PER_DAY}). Upgrade to paid for unlimited scans.`,
-          };
+        // Check daily scan limit for API key users
+        if (auth.apiKeyId) {
+          const canScan = await checkScanLimit();
+          if (!canScan) {
+            set.status = 429;
+            return {
+              error: `Daily API scan limit reached (${LIMITS.FREE_API_CALLS_PER_DAY}). Upgrade to paid for unlimited scans.`,
+            };
+          }
         }
+
+        // Store artifact to disk
+        const storagePath = await storeArtifact(sha256, buffer);
+
+        // Insert artifact row
+        const [artifact] = await db
+          .insert(artifacts)
+          .values({
+            userId: userId,
+            originalFilename: file.name || "upload",
+            sha256,
+            fileSize: file.size,
+            storagePath,
+          })
+          .returning({ id: artifacts.id });
+
+        // Insert scan job
+        const priority = auth.tier === "paid" ? 10 : 0;
+        const [scanJob] = await db
+          .insert(scanJobs)
+          .values({
+            artifactId: artifact.id,
+            userId: userId,
+            priority,
+          })
+          .returning({ id: scanJobs.id });
+
+        // Increment daily usage for API key requests
+        if (auth.apiKeyId) {
+          await incrementDailyScanCount(auth.apiKeyId);
+        }
+
+        return { jobId: scanJob.id, status: "queued" };
+      } finally {
+        decrementUploads(userId);
       }
-
-      // Store artifact to disk
-      const storagePath = await storeArtifact(sha256, buffer);
-
-      // Insert artifact row
-      const [artifact] = await db
-        .insert(artifacts)
-        .values({
-          userId: userId,
-          originalFilename: file.name || "upload",
-          sha256,
-          fileSize: file.size,
-          storagePath,
-        })
-        .returning({ id: artifacts.id });
-
-      // Insert scan job
-      const priority = auth.tier === "paid" ? 10 : 0;
-      const [scanJob] = await db
-        .insert(scanJobs)
-        .values({
-          artifactId: artifact.id,
-          userId: userId,
-          priority,
-        })
-        .returning({ id: scanJobs.id });
-
-      // Increment daily usage for API key requests
-      if (auth.apiKeyId) {
-        await incrementDailyScanCount(auth.apiKeyId);
-      }
-
-      return { jobId: scanJob.id, status: "queued" };
     },
     {
       body: t.Object({
