@@ -30,4 +30,7 @@ Thumbs.db
 # Bun
 bun.lockb
 
+# Docs (local only)
+docs/
+
 # Drizzle (meta/ is needed for migration tracking, do not ignore)
