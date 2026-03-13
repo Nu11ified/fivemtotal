@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Navbar } from "../components/Navbar";
+// @ts-expect-error Vite CSS URL import
 import appCss from "../globals.css?url";
 
 export const Route = createRootRoute({
