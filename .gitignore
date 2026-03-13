@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+.output/
+.vinxi/
 
 # Environment variables
 .env
@@ -21,6 +23,9 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Logs
+*.log
 
 # Bun
 bun.lockb
