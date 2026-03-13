@@ -1,0 +1,23 @@
+{
+  "name": "@fivemtotal/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "elysia": "^1.2.25",
+    "@elysiajs/cors": "^1.2.0",
+    "better-auth": "^1.2.7",
+    "drizzle-orm": "^0.39.3",
+    "@fivemtotal/shared": "workspace:*",
+    "@fivemtotal/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.3"
+  }
+}
