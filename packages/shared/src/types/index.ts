@@ -1,0 +1,13 @@
+export type ScanStatus = "queued" | "processing" | "completed" | "failed" | "timed_out";
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+export type VerdictStatus = "malicious" | "suspicious" | "safe" | "unknown";
+export type HashType = "file" | "archive";
+export type Tier = "free" | "paid";
+export type UserRole = "admin" | "analyst" | "user";
+export type FindingCategory = "loader" | "propagator" | "exfil" | "host_abuse" | "obfuscation" | "ioc_match";
+export type HashList = "blacklist" | "warning" | "safe" | "unknown";
+export type SubscriptionStatus = "active" | "cancelled" | "past_due";
+export type FileType = "lua" | "js" | "manifest" | "binary" | "other";
+export type IocType = "domain" | "url" | "url_pattern" | "hash" | "regex";
+export type ReviewAction = "blacklist" | "warning_list" | "safe_list" | "release" | "revoke" | "escalate";
+export type EventType = "violation" | "blocked" | "alert";
