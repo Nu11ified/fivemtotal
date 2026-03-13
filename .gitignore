@@ -1,38 +1,17 @@
-# Dependencies
+# Everything except lua/guard is in the private repo
+apps/
+packages/
+docs/
 node_modules/
-
-# Build output
 dist/
-.output/
-.vinxi/
-
-# Environment variables
 .env
-.env.local
-.env.*.local
-
-# Artifact storage
-data/artifacts/
-
-# OS files
+.env.*
+*.log
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Logs
-*.log
-
-# Bun
+bun.lock
 bun.lockb
-
-# Closed source (local only)
-apps/api/
-apps/web/
-docs/
-
-# Drizzle (meta/ is needed for migration tracking, do not ignore)
