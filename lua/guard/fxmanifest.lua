@@ -8,5 +8,6 @@ version '1.0.0'
 server_scripts {
   'config.lua',
   'api.lua',
-  'guard.lua'
+  'guard.lua',
+  'scanner.lua'
 }

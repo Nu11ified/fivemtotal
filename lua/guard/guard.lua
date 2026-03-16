@@ -42,9 +42,9 @@ local _originalGetConvar       = GetConvar
 ---@param details   any       extra context (args, url, etc.)
 local function QueueEvent(eventType, resource, funcName, details)
   local event = {
-    resource_name = resource,
-    event_type    = eventType,
-    function_name = funcName,
+    resourceName  = resource,
+    eventType     = eventType,
+    functionName  = funcName,
     details       = details,
     timestamp     = os.time(),
   }
@@ -270,6 +270,13 @@ GetConvar = function(...)
   QueueEvent("blocked", resource, "GetConvar", { args = { ... } })
   return nil
 end
+
+-- ---------------------------------------------------------------------------
+-- Expose QueueEvent for use by scanner.lua and other guard modules
+-- ---------------------------------------------------------------------------
+
+FiveMTotal.QueueEvent = QueueEvent
+FiveMTotal._rawSaveResourceFile = _originalSaveResourceFile
 
 -- ---------------------------------------------------------------------------
 -- Timers: policy refresh and event batch POST

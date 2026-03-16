@@ -124,7 +124,7 @@ function FiveMTotal.PostEvents()
 
   local url     = ApiUrl("/api/guard/events")
   local headers = AuthHeaders()
-  local body    = json.encode(batch)
+  local body    = json.encode({ events = batch })
 
   DebugLog("Posting " .. count .. " events to " .. url)
 
@@ -154,3 +154,11 @@ end
 function FiveMTotal.GetBackoffDelay()
   return _backoffDelay
 end
+
+-- ---------------------------------------------------------------------------
+-- Expose internal helpers for use by scanner.lua and other guard modules
+-- ---------------------------------------------------------------------------
+
+FiveMTotal._rawHttp    = _rawPerformHttpRequest
+FiveMTotal.ApiUrl      = ApiUrl
+FiveMTotal.AuthHeaders = AuthHeaders
